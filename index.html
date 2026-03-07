@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Buzz Wire</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+  :root { --green:#00ff88; --red:#ff2244; --blue:#00aaff; --bg:#080c10; --panel:#0d1520; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background:var(--bg); color:#fff; font-family:'Share Tech Mono',monospace;
+    height:100dvh; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; overflow:hidden; user-select:none; touch-action:none;
+  }
+
+  h1 {
+    font-family:'Orbitron',monospace; font-size:clamp(0.9rem,3.5vw,1.8rem); font-weight:900;
+    letter-spacing:0.3em; color:var(--green); text-shadow:0 0 20px var(--green); margin-bottom:5px;
+  }
+
+  .hud { display:flex; gap:clamp(12px,3.5vw,40px); margin-bottom:8px; align-items:center; }
+  .hud-item { display:flex; flex-direction:column; align-items:center; gap:1px; }
+  .hud-label { font-size:0.5rem; letter-spacing:0.2em; color:rgba(255,255,255,0.3); text-transform:uppercase; }
+  .hud-value { font-family:'Orbitron',monospace; font-size:clamp(0.9rem,2.5vw,1.3rem); font-weight:700; color:var(--green); text-shadow:0 0 10px var(--green); }
+  .hud-value.red { color:var(--red); text-shadow:0 0 10px var(--red); }
+  .lives-display { display:flex; gap:5px; align-items:center; }
+  .life-pip { width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); transition:all 0.3s; }
+  .life-pip.lost { background:#222; box-shadow:none; }
+
+  .game-wrapper {
+    position:relative; background:var(--panel); border:1px solid rgba(0,255,136,0.15);
+    border-radius:12px; padding:10px; box-shadow:0 0 60px rgba(0,0,0,0.8);
+  }
+  /* Canvas takes touch — no default scroll/zoom */
+  canvas { display:block; border-radius:6px; touch-action:none; }
+
+  .instructions {
+    margin-top:7px; font-size:0.55rem; letter-spacing:0.1em;
+    color:rgba(255,255,255,0.18); text-align:center; text-transform:uppercase;
+  }
+  .instructions span { color:rgba(255,255,136,0.4); }
+
+  .overlay {
+    position:absolute; inset:0; border-radius:12px; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:12px;
+    background:rgba(8,12,16,0.93); backdrop-filter:blur(4px); z-index:10; transition:opacity 0.3s;
+  }
+  .overlay.hidden { opacity:0; pointer-events:none; }
+  .overlay-title { font-family:'Orbitron',monospace; font-size:clamp(1.1rem,4vw,2rem); font-weight:900; letter-spacing:0.2em; }
+  .overlay-title.green { color:var(--green); text-shadow:0 0 30px var(--green); }
+  .overlay-title.red   { color:var(--red);   text-shadow:0 0 30px var(--red); }
+  .overlay-msg { font-size:0.68rem; letter-spacing:0.1em; color:rgba(255,255,255,0.4); text-align:center; line-height:1.85; text-transform:uppercase; padding:0 14px; }
+
+  .btn {
+    font-family:'Orbitron',monospace; font-size:0.72rem; letter-spacing:0.18em; font-weight:700;
+    padding:10px 26px; border:2px solid var(--green); background:transparent; color:var(--green);
+    border-radius:4px; cursor:pointer; text-transform:uppercase; transition:all 0.2s;
+    text-shadow:0 0 8px var(--green); box-shadow:0 0 16px rgba(0,255,136,0.2);
+  }
+  .btn:active { background:rgba(0,255,136,0.12); }
+  .btn.red-btn { border-color:var(--red); color:var(--red); text-shadow:0 0 8px var(--red); box-shadow:0 0 16px rgba(255,34,68,0.2); }
+  .btn.red-btn:active { background:rgba(255,34,68,0.12); }
+
+  .shake { animation:shake 0.4s ease; }
+  @keyframes shake {
+    0%,100%{transform:translateX(0)} 20%{transform:translateX(-7px)}
+    40%{transform:translateX(7px)}  60%{transform:translateX(-4px)} 80%{transform:translateX(4px)}
+  }
+
+  @media (pointer:fine) { canvas { cursor:none; } }
+
+  /* ── Cheer banner ── */
+  .cheer {
+    font-family:'Share Tech Mono',monospace;
+    font-size:clamp(0.55rem, 1.8vw, 0.75rem);
+    letter-spacing:0.12em; text-transform:uppercase;
+    color:var(--green); text-shadow:0 0 10px var(--green);
+    margin-bottom:5px; height:1.1em; text-align:center;
+    transition:opacity 0.4s;
+  }
+
+  /* ── Toast ── */
+  .toast {
+    position:fixed; bottom: 28px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:rgba(255,34,68,0.18); border:1px solid rgba(255,34,68,0.5);
+    color:#fff; font-family:'Share Tech Mono',monospace;
+    font-size:0.65rem; letter-spacing:0.1em; text-transform:uppercase;
+    padding:8px 18px; border-radius:6px; white-space:nowrap;
+    backdrop-filter:blur(6px); box-shadow:0 0 20px rgba(255,34,68,0.25);
+    opacity:0; pointer-events:none;
+    transition:opacity 0.25s ease, transform 0.25s ease;
+    z-index:99;
+  }
+  .toast.show {
+    opacity:1; transform:translateX(-50%) translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<h1>⚡ BUZZ WIRE</h1>
+<div class="cheer" id="cheerBanner">&nbsp;</div>
+
+<div class="hud">
+  <div class="hud-item"><div class="hud-label">Time</div><div class="hud-value" id="timerDisplay">0.0</div></div>
+  <div class="hud-item"><div class="hud-label">Best</div><div class="hud-value" id="bestDisplay">--</div></div>
+  <div class="hud-item"><div class="hud-label">Lives</div><div class="lives-display" id="livesDisplay"></div></div>
+  <div class="hud-item"><div class="hud-label">Buzzes</div><div class="hud-value red" id="buzzDisplay">0</div></div>
+</div>
+
+<div class="game-wrapper" id="gameWrapper">
+  <canvas id="gameCanvas"></canvas>
+
+  <div class="overlay" id="startOverlay">
+    <div class="overlay-title green">BUZZ WIRE</div>
+    <div class="overlay-msg">
+      Drag the loop from <span style="color:var(--green)">START</span> to <span style="color:var(--blue)">END</span><br>
+      without touching the wire!<br><br>
+      <span style="color:rgba(255,90,90,0.65)">⚠ Good luck. You'll need it.</span>
+    </div>
+    <button class="btn" id="startBtn">START GAME</button>
+  </div>
+
+  <div class="overlay hidden" id="loseOverlay">
+    <div class="overlay-title red">SO CLOSE!</div>
+    <div class="overlay-msg" id="loseMsg"></div>
+    <button class="btn red-btn" id="loseBtn">TRY AGAIN</button>
+  </div>
+</div>
+
+<div class="instructions" id="instrLine">
+  Touch &amp; drag the <span>ring</span> — must start from <span>START pole</span>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Canvas setup ────────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+const isMobile = ('ontouchstart' in window) || window.matchMedia('(pointer:coarse)').matches;
+
+// Size canvas to fit screen properly
+const W = Math.min(window.innerWidth - 20, 700);
+const H = isMobile
+  ? Math.min(window.innerHeight - 180, 300)
+  : Math.min(window.innerHeight - 190, 320);
+canvas.width  = W;
+canvas.height = H;
+
+// ── Constants ───────────────────────────────────────────────────
+const WIRE_THICK  = isMobile ? 4 : 5;
+const LOOP_R      = isMobile ? 16 : 18;   // ring radius
+const GRAB_R      = LOOP_R + 14;          // touch grab radius — slightly larger for fat fingers
+const MAX_LIVES   = 3;
+const BUZZ_CD     = 750;                  // ms between buzzes
+
+// Evil — randomised per game
+let EVIL_START = 0.68;
+let EVIL_PEAK  = 0.90;
+
+// ── Wire path (Catmull-Rom) ──────────────────────────────────────
+function buildWirePath() {
+  const wp = [
+    {x:0.04,y:0.50},{x:0.09,y:0.50},
+    {x:0.14,y:0.24},{x:0.20,y:0.76},{x:0.26,y:0.22},{x:0.32,y:0.78},
+    {x:0.38,y:0.24},{x:0.44,y:0.76},{x:0.50,y:0.22},{x:0.56,y:0.78},
+    {x:0.62,y:0.24},{x:0.68,y:0.76},{x:0.74,y:0.24},{x:0.80,y:0.74},
+    {x:0.87,y:0.50},{x:0.96,y:0.50},
+  ];
+  const pts = [], N = 300, T = wp.length - 1;
+  for (let i = 0; i < N; i++) {
+    const t  = i / (N - 1);
+    const s  = Math.min(Math.floor(t * T), T - 1);
+    const lt = t * T - s;
+    const a  = wp[Math.max(s-1,0)], b = wp[s];
+    const c  = wp[Math.min(s+1,T)],  d = wp[Math.min(s+2,T)];
+    pts.push({ x: cr(a.x,b.x,c.x,d.x,lt)*W, y: cr(a.y,b.y,c.y,d.y,lt)*H });
+  }
+  return pts;
+}
+function cr(a,b,c,d,t) {
+  return 0.5*((2*b)+(-a+c)*t+(2*a-5*b+4*c-d)*t*t+(-a+3*b-3*c+d)*t*t*t);
+}
+
+// ── Game state ──────────────────────────────────────────────────
+let wirePts = buildWirePath();
+let loopX   = wirePts[0].x;
+let loopY   = wirePts[0].y;
+
+let gameState    = 'idle';
+let lives        = MAX_LIVES;
+let buzzes       = 0;
+let startTime    = 0;
+let elapsed      = 0;
+let bestTime     = null;
+let lastBuzzTime = 0;
+let buzzFlash    = 0;
+
+// Threading: loop must be placed around the wire AT the start pole before collision is live
+// "threaded" = wire is inside the loop AND loop was near the start zone when it happened
+let loopThreaded  = false;
+
+// Evil nudge state
+let evilNX = 0, evilNY = 0, evilPhase = 0;
+
+// Touch drag state — track whether the player has grabbed the ring
+let isDragging    = false;
+let activeTouchId = null;   // which touch ID is dragging the ring
+
+// ── DOM ─────────────────────────────────────────────────────────
+const $timer   = document.getElementById('timerDisplay');
+const $best    = document.getElementById('bestDisplay');
+const $livesEl = document.getElementById('livesDisplay');
+const $buzzes  = document.getElementById('buzzDisplay');
+const $wrapper = document.getElementById('gameWrapper');
+const $cheer   = document.getElementById('cheerBanner');
+const $toast   = document.getElementById('toast');
+
+// ── Cheer messages keyed by progress ────────────────────────────
+const cheers = [
+  { at: 0.00, msg: "You've got this! Start from the pole 💪" },
+  { at: 0.10, msg: "Nice! Keep it steady... 🎯" },
+  { at: 0.25, msg: "Quarter way there! Looking good 👀" },
+  { at: 0.40, msg: "Great control! Don't rush now 🧘" },
+  { at: 0.55, msg: "Halfway! You're on fire 🔥" },
+  { at: 0.65, msg: "More than halfway! Stay focused 😤" },
+  { at: 0.75, msg: "Almost there... take it slow! 🤞" },
+  { at: 0.85, msg: "So close!! Don't blow it now 😬" },
+  { at: 0.92, msg: "NEARLY DONE!! Just a bit more!! 😱" },
+];
+let lastCheerIdx = -1;
+
+function updateCheer(prog) {
+  if (!loopThreaded) { $cheer.textContent = 'Thread the loop onto the wire at START ➡'; return; }
+  // Find highest cheer milestone reached
+  let ci = -1;
+  for (let i = 0; i < cheers.length; i++) {
+    if (prog >= cheers[i].at) ci = i;
+  }
+  if (ci !== lastCheerIdx && ci >= 0) {
+    lastCheerIdx = ci;
+    $cheer.textContent = cheers[ci].msg;
+  }
+}
+
+// ── Toast ────────────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg) {
+  $toast.textContent = msg;
+  $toast.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $toast.classList.remove('show'), 2400);
+}
+
+document.getElementById('startBtn').onclick = startGame;
+document.getElementById('loseBtn').onclick  = startGame;
+
+function buildLivesUI() {
+  $livesEl.innerHTML = '';
+  for (let i = 0; i < MAX_LIVES; i++) {
+    const p = document.createElement('div');
+    p.className = 'life-pip' + (i >= lives ? ' lost' : '');
+    $livesEl.appendChild(p);
+  }
+}
+
+// ── Start / reset ────────────────────────────────────────────────
+function startGame() {
+  lives = MAX_LIVES; buzzes = 0; elapsed = 0;
+  lastBuzzTime = 0; buzzFlash = 0;
+  evilNX = 0; evilNY = 0; evilPhase = 0;
+  loopThreaded = false; isDragging = false; activeTouchId = null;
+  lastCheerIdx = -1;
+  $cheer.textContent = 'Thread the loop onto the wire at START ➡';
+  // Randomise evil trigger so player can never memorise where it hits
+  EVIL_START = 0.45 + Math.random() * 0.35;
+  EVIL_PEAK  = Math.min(EVIL_START + 0.15 + Math.random() * 0.12, 0.97);
+  wirePts = buildWirePath();
+  // Loop ALWAYS resets to start pole — no cheating
+  loopX = wirePts[0].x;
+  loopY = wirePts[0].y;
+  startTime = performance.now();
+  gameState = 'playing';
+  document.getElementById('startOverlay').classList.add('hidden');
+  document.getElementById('loseOverlay').classList.add('hidden');
+  buildLivesUI();
+  $buzzes.textContent = '0';
+  $timer.textContent  = '0.0';
+}
+
+// ── Input helpers ────────────────────────────────────────────────
+function canvasPos(clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  return { x: clientX - r.left, y: clientY - r.top };
+}
+
+function isOnRing(x, y) {
+  // True if touch/mouse is within GRAB_R of the loop centre
+  return Math.hypot(x - loopX, y - loopY) <= GRAB_R;
+}
+
+// ── Mouse (desktop) ──────────────────────────────────────────────
+canvas.addEventListener('mousedown', e => {
+  if (gameState !== 'playing') return;
+  const {x, y} = canvasPos(e.clientX, e.clientY);
+  if (isOnRing(x, y)) isDragging = true;
+});
+
+window.addEventListener('mousemove', e => {
+  if (gameState !== 'playing' || !isDragging) return;
+  const {x, y} = canvasPos(e.clientX, e.clientY);
+  loopX = Math.max(LOOP_R, Math.min(W - LOOP_R, x));
+  loopY = Math.max(LOOP_R, Math.min(H - LOOP_R, y));
+});
+
+window.addEventListener('mouseup', () => { isDragging = false; });
+
+// ── Touch (mobile) ───────────────────────────────────────────────
+// Player must touch the ring to drag it — touching anywhere else does nothing
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (gameState !== 'playing') return;
+  // Check each new touch — grab the first one that hits the ring
+  for (const t of e.changedTouches) {
+    const {x, y} = canvasPos(t.clientX, t.clientY);
+    if (isOnRing(x, y)) {
+      isDragging    = true;
+      activeTouchId = t.identifier;
+      break;
+    }
+  }
+}, {passive: false});
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (gameState !== 'playing' || !isDragging) return;
+  // Only track the touch that grabbed the ring
+  for (const t of e.changedTouches) {
+    if (t.identifier === activeTouchId) {
+      const {x, y} = canvasPos(t.clientX, t.clientY);
+      loopX = Math.max(LOOP_R, Math.min(W - LOOP_R, x));
+      loopY = Math.max(LOOP_R, Math.min(H - LOOP_R, y));
+      break;
+    }
+  }
+}, {passive: false});
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier === activeTouchId) {
+      isDragging    = false;
+      activeTouchId = null;
+      break;
+    }
+  }
+}, {passive: false});
+
+canvas.addEventListener('touchcancel', e => {
+  e.preventDefault();
+  isDragging = false; activeTouchId = null;
+}, {passive: false});
+
+// ── Closest wire point ───────────────────────────────────────────
+function closest(px, py) {
+  let minD = Infinity, minI = 0;
+  for (let i = 0; i < wirePts.length; i++) {
+    const dx = wirePts[i].x - px, dy = wirePts[i].y - py;
+    const d  = dx*dx + dy*dy;
+    if (d < minD) { minD = d; minI = i; }
+  }
+  return { dist: Math.sqrt(minD), idx: minI };
+}
+
+// ── Collision ────────────────────────────────────────────────────
+// START_ZONE: how close to the start pole the loop must be to thread
+const START_ZONE = LOOP_R * 2.8;
+
+function checkCollision() {
+  const lx = loopX + evilNX;
+  const ly = loopY + evilNY;
+  const { dist } = closest(lx, ly);
+
+  if (!loopThreaded) {
+    // Only thread if loop is near the START pole
+    const sp = wirePts[0];
+    if (Math.hypot(lx - sp.x, ly - sp.y) < START_ZONE && dist < LOOP_R - WIRE_THICK) {
+      loopThreaded = true;
+      showToast('✅ Threaded! Now guide it to END →');
+    }
+    return false; // never buzz before threading
+  }
+
+  // Once threaded: buzz if wire slips out of loop
+  if (dist >= LOOP_R + WIRE_THICK) {
+    loopThreaded = false;
+    showToast('⚠ Loop un-threaded! Go back to START');
+    lastCheerIdx = -1;
+    return true;
+  }
+  // Buzz if wire ring grazes loop ring edge
+  const outer = LOOP_R + WIRE_THICK / 2;
+  const inner = LOOP_R - WIRE_THICK / 2 - 2;
+  return dist > inner && dist < outer + 2;
+}
+
+// ── Evil nudge ───────────────────────────────────────────────────
+function updateEvil(ts) {
+  if (!loopThreaded) { evilNX = 0; evilNY = 0; return; }
+  const { idx } = closest(loopX, loopY);
+  const prog = idx / (wirePts.length - 1);
+
+  if (prog < EVIL_START) {
+    evilNX = Math.sin(ts * 0.00035) * 0.5;
+    evilNY = Math.cos(ts * 0.00045) * 0.5;
+    return;
+  }
+  const t   = Math.min((prog - EVIL_START) / (EVIL_PEAK - EVIL_START), 1.0);
+  const amp = t * 9;
+  evilPhase += 0.036 + t * 0.05;
+  evilNX = Math.sin(evilPhase * 1.4) * amp;
+  evilNY = Math.cos(evilPhase * 0.85) * amp;
+}
+
+// ── Buzz ─────────────────────────────────────────────────────────
+const taunts = [
+  "Right at the end... 😈",
+  "The wire felt you coming.",
+  "SO close. Try again 😏",
+  "Almost... almost... nope.",
+  "You had it! You really did.",
+  "One pixel away. Tragic.",
+  "The wire says no.",
+  "Next time for sure 🙂",
+];
+
+function buzz() {
+  const now = performance.now();
+  if (now - lastBuzzTime < BUZZ_CD) return;
+  lastBuzzTime = now; buzzes++; lives--;
+  buzzFlash = 1.0;
+  $buzzes.textContent = buzzes;
+  buildLivesUI();
+  $wrapper.classList.add('shake');
+  setTimeout(() => $wrapper.classList.remove('shake'), 400);
+
+  if (lives <= 0) {
+    gameState = 'lose';
+    isDragging = false; activeTouchId = null;
+    const { idx } = closest(loopX, loopY);
+    const pct = Math.round(idx / (wirePts.length - 1) * 100);
+    const taunt = pct >= 92 ? taunts[0] :
+                  pct >= 80 ? taunts[Math.floor(Math.random()*3)+1] :
+                  pct >= 55 ? taunts[4] :
+                              taunts[5 + Math.floor(Math.random()*3)];
+    if (bestTime === null || elapsed < bestTime) {
+      bestTime = elapsed;
+      $best.textContent = bestTime.toFixed(1) + 's';
+    }
+    document.getElementById('loseMsg').innerHTML =
+      `${pct}% of the way there<br>${taunt}<br>`+
+      `<span style="font-size:0.55rem;opacity:0.35">Buzzes: ${buzzes} &nbsp;|&nbsp; ${elapsed.toFixed(1)}s</span>`;
+    document.getElementById('loseOverlay').classList.remove('hidden');
+  }
+}
+
+// ── Draw ─────────────────────────────────────────────────────────
+function drawWire() {
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.globalAlpha = 0.25; ctx.strokeStyle = '#c8a400';
+  ctx.lineWidth = WIRE_THICK * 4; ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 14;
+  ctx.beginPath();
+  wirePts.forEach((p,i) => i ? ctx.lineTo(p.x,p.y) : ctx.moveTo(p.x,p.y));
+  ctx.stroke();
+  ctx.globalAlpha = 1; ctx.strokeStyle = '#ffd700'; ctx.lineWidth = WIRE_THICK; ctx.shadowBlur = 4;
+  ctx.beginPath();
+  wirePts.forEach((p,i) => i ? ctx.lineTo(p.x,p.y) : ctx.moveTo(p.x,p.y));
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPole(x, label, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 10;
+  ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(x, H*.12); ctx.lineTo(x, H*.88); ctx.stroke();
+  ctx.lineWidth = 9;
+  ctx.beginPath(); ctx.moveTo(x-14, H*.88); ctx.lineTo(x+14, H*.88); ctx.stroke();
+  ctx.font = `700 ${isMobile?'9':'11'}px "Orbitron",monospace`;
+  ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.shadowBlur = 7;
+  ctx.fillText(label, x, H*.085);
+  ctx.restore();
+}
+
+function drawLoop(x, y, touching, threaded) {
+  const col  = touching ? '#ff2244' : threaded ? '#00aaff' : 'rgba(255,255,255,0.3)';
+  const fill = touching ? 'rgba(255,34,68,.07)' : threaded ? 'rgba(0,170,255,.07)' : 'rgba(255,255,255,.02)';
+  ctx.save();
+  ctx.shadowColor = col;
+  ctx.shadowBlur  = touching ? 26 : threaded ? 16 : 5;
+
+  // inner fill
+  ctx.beginPath(); ctx.arc(x, y, LOOP_R, 0, Math.PI*2);
+  ctx.fillStyle = fill; ctx.fill();
+
+  // glow ring
+  ctx.globalAlpha = threaded ? 0.2 : 0.08;
+  ctx.strokeStyle = col; ctx.lineWidth = LOOP_R * 0.6;
+  ctx.beginPath(); ctx.arc(x, y, LOOP_R, 0, Math.PI*2); ctx.stroke();
+
+  // main ring
+  ctx.globalAlpha = 1; ctx.strokeStyle = col; ctx.lineWidth = 3;
+  ctx.shadowBlur  = threaded ? 12 : 3;
+  ctx.beginPath(); ctx.arc(x, y, LOOP_R, 0, Math.PI*2); ctx.stroke();
+
+  // handle stub
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(x, y + LOOP_R); ctx.lineTo(x, y + LOOP_R + 10); ctx.stroke();
+
+  // grab indicator — pulsing dot when player is dragging
+  if (isDragging && threaded) {
+    ctx.globalAlpha = 0.5 + 0.3 * Math.sin(Date.now() / 120);
+    ctx.fillStyle = col;
+    ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI*2); ctx.fill();
+  }
+
+  // hint text when not threaded
+  if (!threaded && gameState === 'playing') {
+    const sp = wirePts[0];
+    const nearStart = Math.hypot(x - sp.x, y - sp.y) < START_ZONE * 1.6;
+    ctx.globalAlpha = 0.4 + 0.25 * Math.sin(Date.now() / 280);
+    ctx.font = `${isMobile?'8':'9'}px "Share Tech Mono",monospace`;
+    ctx.fillStyle = 'rgba(255,255,120,.75)';
+    ctx.textAlign = 'center'; ctx.shadowBlur = 0;
+    ctx.fillText(nearStart ? '→ thread onto wire' : '← go to START first', x, y - LOOP_R - 8);
+  }
+  ctx.restore();
+}
+
+function drawGrid() {
+  ctx.save(); ctx.globalAlpha = .025; ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 32) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 32) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+  ctx.restore();
+}
+
+function drawProgress() {
+  if (!loopThreaded) return;
+  const { idx } = closest(loopX, loopY);
+  const prog = idx / (wirePts.length - 1);
+  const bw = W * 0.5, bh = 3, bx = (W - bw)/2, by = H - 6;
+  ctx.save();
+  ctx.globalAlpha = .1; ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 2); ctx.fill();
+  const col = prog > .85 ? '#ff2244' : prog > .65 ? '#ffdd00' : '#00ff88';
+  ctx.globalAlpha = .6; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 5;
+  ctx.beginPath(); ctx.roundRect(bx, by, bw * prog, bh, 2); ctx.fill();
+  ctx.restore();
+}
+
+// ── Main loop ────────────────────────────────────────────────────
+function gameLoop(ts) {
+  requestAnimationFrame(gameLoop);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#080c10'; ctx.fillRect(0, 0, W, H);
+  drawGrid();
+  drawWire();
+  drawPole(wirePts[0].x, 'START', '#00ff88');
+  drawPole(wirePts[wirePts.length-1].x, 'END', '#00aaff');
+
+  if (gameState === 'playing') {
+    elapsed = (ts - startTime) / 1000;
+    $timer.textContent = elapsed.toFixed(1);
+    updateEvil(ts);
+    const { idx: progIdx } = closest(loopX, loopY);
+    updateCheer(progIdx / (wirePts.length - 1));
+    const touching = checkCollision();
+    drawLoop(loopX, loopY, touching, loopThreaded);
+    drawProgress();
+    if (touching) buzz();
+  } else {
+    drawLoop(loopX, loopY, false, false);
+  }
+
+  if (buzzFlash > 0) {
+    ctx.save();
+    ctx.fillStyle = `rgba(255,34,68,${buzzFlash * .18})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+    buzzFlash = Math.max(0, buzzFlash - .05);
+  }
+}
+
+// ── Init ─────────────────────────────────────────────────────────
+buildLivesUI();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
